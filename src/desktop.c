@@ -320,6 +320,98 @@ avoid_edge_rounding_issues(struct cursor_context *ctx)
 	}
 }
 
+static enum lab_node_type
+csd_margin_resize_part(struct view *view, double x, double y)
+{
+	if (!view || view->type != LAB_XDG_SHELL_VIEW
+			|| view->ssd_mode != LAB_SSD_MODE_NONE
+			|| !view->mapped || !view->surface) {
+		return LAB_NODE_NONE;
+	}
+
+	struct wlr_xdg_surface *xdg = xdg_surface_from_view(view);
+	if (!xdg) {
+		return LAB_NODE_NONE;
+	}
+
+	int geo_x = xdg->current.geometry.x;
+	int geo_y = xdg->current.geometry.y;
+	int geo_w = xdg->current.geometry.width;
+	int geo_h = xdg->current.geometry.height;
+	int surf_w = view->surface->current.width;
+	int surf_h = view->surface->current.height;
+	if (geo_w <= 0 || geo_h <= 0 || surf_w <= 0 || surf_h <= 0) {
+		return LAB_NODE_NONE;
+	}
+
+	struct wlr_box window = view->current;
+	struct wlr_box surface = {
+		.x = window.x - geo_x,
+		.y = window.y - geo_y,
+		.width = surf_w,
+		.height = surf_h,
+	};
+
+	if (!wlr_box_contains_point(&surface, x, y)
+			|| wlr_box_contains_point(&window, x, y)) {
+		return LAB_NODE_NONE;
+	}
+
+	bool left = x < window.x;
+	bool right = x >= window.x + window.width;
+	bool top = y < window.y;
+	bool bottom = y >= window.y + window.height;
+
+	if (top && left) {
+		return LAB_NODE_CORNER_TOP_LEFT;
+	} else if (top && right) {
+		return LAB_NODE_CORNER_TOP_RIGHT;
+	} else if (bottom && right) {
+		return LAB_NODE_CORNER_BOTTOM_RIGHT;
+	} else if (bottom && left) {
+		return LAB_NODE_CORNER_BOTTOM_LEFT;
+	} else if (top) {
+		return LAB_NODE_BORDER_TOP;
+	} else if (right) {
+		return LAB_NODE_BORDER_RIGHT;
+	} else if (bottom) {
+		return LAB_NODE_BORDER_BOTTOM;
+	} else if (left) {
+		return LAB_NODE_BORDER_LEFT;
+	}
+
+	return LAB_NODE_NONE;
+}
+
+static bool
+try_csd_margin_resize_context(struct server *server, struct cursor_context *ret)
+{
+	struct wlr_scene_node *node;
+	struct wlr_cursor *cursor = server->seat.cursor;
+
+	wl_list_for_each_reverse(node, &server->workspaces.current->tree->children, link) {
+		if (!node->data) {
+			continue;
+		}
+		struct node_descriptor *desc = node->data;
+		if (desc->type != LAB_NODE_VIEW) {
+			continue;
+		}
+		struct view *view = desc->view;
+		enum lab_node_type type =
+			csd_margin_resize_part(view, cursor->x, cursor->y);
+		if (type == LAB_NODE_NONE) {
+			continue;
+		}
+		ret->node = node;
+		ret->type = type;
+		ret->view = view;
+		return true;
+	}
+
+	return false;
+}
+
 /* TODO: make this less big and scary */
 struct cursor_context
 get_cursor_context(void)
@@ -338,6 +430,10 @@ get_cursor_context(void)
 
 	if (server.seat.drag.active) {
 		dnd_icons_show(&server.seat, true);
+	}
+
+	if (try_csd_margin_resize_context(server, &ret)) {
+		return ret;
 	}
 
 	if (!node) {
@@ -444,4 +540,3 @@ get_cursor_context(void)
 	 */
 	return ret;
 }
-

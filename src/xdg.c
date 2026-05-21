@@ -49,6 +49,23 @@ xdg_surface_from_view(struct view *view)
 	return xdg_toplevel_view->xdg_surface;
 }
 
+static void
+apply_csd_content_clip(struct view *view, const struct wlr_box *clip)
+{
+	if (!view || !view->content_tree) {
+		return;
+	}
+
+	/*
+	 * Portal downstream: CSD clients such as Chromium can render soft
+	 * shadows into the surface area outside xdg window_geometry. Those
+	 * pixels are already blended by the time wlr-screencopy sees them,
+	 * so clip the xdg subsurface tree to the declared visible window
+	 * geometry before composition.
+	 */
+	wlr_scene_subsurface_tree_set_clip(&view->content_tree->node, clip);
+}
+
 static struct wlr_xdg_toplevel *
 xdg_toplevel_from_view(struct view *view)
 {
@@ -304,6 +321,8 @@ handle_commit(struct wl_listener *listener, void *data)
 			size = extent; /* Use surface extent instead */
 		}
 	}
+
+	apply_csd_content_clip(view, &size);
 
 	struct wlr_box *current = &view->current;
 	if (current->width != size.width || current->height != size.height) {
@@ -1050,6 +1069,8 @@ handle_new_xdg_toplevel(struct wl_listener *listener, void *data)
 	die_if_null(tree);
 
 	view->content_tree = tree;
+	struct wlr_box clip = xdg_surface->geometry;
+	apply_csd_content_clip(view, &clip);
 	node_descriptor_create(&view->scene_tree->node,
 		LAB_NODE_VIEW, view, /*data*/ NULL);
 
