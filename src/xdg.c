@@ -2,6 +2,7 @@
 
 #include <assert.h>
 #include <wlr/types/wlr_fractional_scale_v1.h>
+#include <wlr/types/wlr_scene.h>
 
 #include "common/macros.h"
 #include "common/mem.h"
@@ -34,6 +35,23 @@ xdg_surface_from_view(struct view *view)
 		(struct xdg_toplevel_view *)view;
 	assert(xdg_toplevel_view->xdg_surface);
 	return xdg_toplevel_view->xdg_surface;
+}
+
+static void
+apply_csd_content_clip(struct view *view, const struct wlr_box *clip)
+{
+	if (!view || !view->content_tree) {
+		return;
+	}
+
+	/*
+	 * Portal downstream: CSD clients such as Chromium can render soft
+	 * shadows into the surface area outside xdg window_geometry. Those
+	 * pixels are already blended by the time wlr-screencopy sees them,
+	 * so clip the xdg subsurface tree to the declared visible window
+	 * geometry before composition.
+	 */
+	wlr_scene_subsurface_tree_set_clip(&view->content_tree->node, clip);
 }
 
 static struct wlr_xdg_toplevel *
@@ -193,6 +211,8 @@ handle_commit(struct wl_listener *listener, void *data)
 			size = extent; /* Use surface extent instead */
 		}
 	}
+
+	apply_csd_content_clip(view, &size);
 
 	struct wlr_box *current = &view->current;
 	if (current->width != size.width || current->height != size.height) {
@@ -935,6 +955,9 @@ xdg_toplevel_new(struct wl_listener *listener, void *data)
 		return;
 	}
 	view->content_tree = tree;
+	struct wlr_box clip;
+	wlr_xdg_surface_get_geometry(xdg_surface, &clip);
+	apply_csd_content_clip(view, &clip);
 	node_descriptor_create(&view->scene_tree->node,
 		LAB_NODE_DESC_VIEW, view);
 
@@ -1016,4 +1039,3 @@ xdg_shell_init(struct server *server)
 	wl_signal_add(&server->xdg_activation->events.new_token,
 		&server->xdg_activation_new_token);
 }
-
