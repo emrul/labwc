@@ -1,0 +1,486 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="portal_toplevel_positioning_v1">
+  <copyright>
+    Copyright © 2026 portal-agent contributors
+
+    Permission to use, copy, modify, distribute, and sell this
+    software and its documentation for any purpose is hereby granted
+    without fee, provided that the above copyright notice appear in
+    all copies and that both that copyright notice and this permission
+    notice appear in supporting documentation, and that the name of
+    the copyright holders not be used in advertising or publicity
+    pertaining to distribution of the software without specific,
+    written prior permission.  The copyright holders make no
+    representations about the suitability of this software for any
+    purpose.  It is provided "as is" without express or implied
+    warranty.
+  </copyright>
+
+  <description summary="learn the on-output position of toplevels">
+    This protocol exposes the per-toplevel position on its output to
+    privileged clients.  It is intended for use by accessibility,
+    screen-recording, and remote-desktop tooling that needs to map
+    application-reported coordinates (which on Wayland are
+    toplevel-relative) into compositor-output coordinates (matching
+    the captured framebuffer).
+
+    Wayland's standard surface design deliberately hides positions
+    from clients on privacy grounds, so this protocol must be
+    restricted to clients the compositor trusts (e.g. via filesystem
+    permissions on the Wayland socket, or a separate privileged
+    socket).
+
+    This is currently a labwc extension; upstreaming as a wlr-staging
+    or freedesktop staging protocol is anticipated.
+  </description>
+
+  <interface name="portal_toplevel_positioning_manager_v1" version="2">
+    <description summary="manager for toplevel positioning">
+      The manager creates positioning handles for each existing and
+      future toplevel on the compositor.  Bind once per session.
+    </description>
+
+    <request name="destroy" type="destructor">
+      <description summary="destroy the manager">
+        Destroying the manager releases all positioning handles it
+        previously created.  Already-bound handles continue to function
+        until their own destroy or until the toplevel is closed.
+      </description>
+    </request>
+
+    <event name="toplevel">
+      <description summary="a positioning handle for a toplevel">
+        Emitted once per existing toplevel when the manager binds, and
+        once per new toplevel as it appears.  On the initial bind,
+        toplevels are emitted in stacking order (back-most first); the
+        client should combine with per-handle `stack_position` events
+        for follow-up changes.
+
+        After this event, the compositor emits an initial batch of
+        property events (app_id, title, output, geometry, state,
+        stack_position) followed by a per-handle `done` event marking
+        that initial state is complete for this toplevel.
+      </description>
+      <arg name="handle" type="new_id" interface="portal_toplevel_positioning_v1"/>
+    </event>
+
+    <event name="popup">
+      <description summary="a positioning handle for an xdg_popup">
+        Emitted whenever an xdg_popup is mapped — chromium menus,
+        GTK dropdowns, tooltips, etc. Popups are transient child
+        surfaces of an xdg_toplevel (or of another popup) that
+        render above their parent and frequently extend beyond it.
+        Without per-popup positioning data, agentic clients that
+        sample the captured framebuffer cannot route popup pixels
+        to a single owning entity — the pixels naturally fall under
+        whichever toplevel's geometry contains them, which slices
+        the popup across canvas seams when it crosses a neighboring
+        window's edge.
+
+        Each popup emits its own initial property batch
+        (parent, geometry) followed by a per-handle `done`. There
+        is no enumeration on bind — popups are inherently transient
+        and only their CURRENT state matters; they appear via this
+        event and disappear via their handle's `closed`.
+      </description>
+      <arg name="handle" type="new_id" interface="portal_popup_positioning_v1"/>
+    </event>
+
+    <event name="compositor_menu">
+      <description summary="a positioning handle for a compositor-internal menu">
+        Emitted whenever the compositor maps an INTERNAL menu — a menu
+        that lives in the compositor's own scene graph and is NOT
+        backed by any wl_surface (so wlr_foreign_toplevel and the
+        xdg-popup protocol cannot see it). Examples on labwc are the
+        root context menu (right-click on desktop) and the per-window
+        menu (right-click on a titlebar).
+
+        These render directly into wlr-screencopy output, so an agent
+        client capturing the framebuffer sees their pixels — but
+        without a positioning signal it has no way to route those
+        pixels to an owning canvas. The pixels fall under whichever
+        toplevel's geometry overlaps them, slicing the menu across
+        canvas seams the same way an unrouted xdg_popup would.
+
+        Each menu emits its own initial property batch (geometry)
+        followed by a per-handle `done`. There is no enumeration on
+        bind — compositor menus are user-driven and transient; they
+        appear via this event and disappear via their handle's
+        `closed`. Submenus of a compositor menu emit their own
+        independent handles when they open.
+      </description>
+      <arg name="handle" type="new_id" interface="portal_compositor_menu_positioning_v1"/>
+    </event>
+
+    <event name="done">
+      <description summary="manager-level sync barrier">
+        Emitted after the compositor finishes the initial enumeration
+        (one `toplevel` event per existing toplevel, each followed by
+        their own `done`).  Clients should treat the world as fully-
+        described after this event and process all subsequent events
+        as live updates.
+
+        Also emitted after each batch of compositor-side state changes
+        affecting multiple handles atomically (e.g. a workspace switch
+        that restacks several toplevels at once).  Pairs with per-handle
+        `done` events to give clients clean atomic-update boundaries.
+      </description>
+    </event>
+
+    <event name="finished">
+      <description summary="manager is no longer valid">
+        Emitted when the compositor has decided to stop offering this
+        protocol (e.g. operator disabled it).  The client should treat
+        this as a signal to stop relying on positioning data; existing
+        handles will not emit further events.
+      </description>
+    </event>
+  </interface>
+
+  <interface name="portal_toplevel_positioning_v1" version="2">
+    <description summary="positioning handle for a single toplevel">
+      Carries position+size events for one compositor toplevel.  The
+      handle is correlated with `wlr_foreign_toplevel_management_v1`
+      and `ext_foreign_toplevel_list_v1` via the `app_id` and `title`
+      events: clients listening to both protocols can match handles by
+      those identifiers.
+
+      ## Coordinate-space contract
+
+      The `geometry` event emits **logical (compositor-layout)
+      coordinates** — i.e. surface-local pixels BEFORE the output's
+      scale and transform are applied.  This is the same coordinate
+      system as the rest of Wayland: `wl_pointer.motion`,
+      `xdg_toplevel.configure` size hints, etc.
+
+      `wlr-screencopy-unstable-v1` delivers buffers in PHYSICAL pixels
+      (post-scale).  On a 2x HiDPI output, a logical 1280x720 toplevel
+      becomes a 2560x1440 region in the screencopy buffer.  Clients
+      that want to match positioning data against a screencopy buffer
+      must read `wl_output.scale` (and `wl_output.geometry.transform`)
+      and apply the conversion themselves:
+
+          buffer_x = floor(geometry.x * wl_output.scale)
+          buffer_y = floor(geometry.y * wl_output.scale)
+          buffer_w = ceil(geometry.width  * wl_output.scale)
+          buffer_h = ceil(geometry.height * wl_output.scale)
+
+      Single-output non-HiDPI deployments (the common case) have
+      scale=1, where logical and physical coords coincide and no
+      conversion is needed.
+
+      Logical was chosen over physical to keep the protocol consistent
+      with Wayland convention; physical-pixel buffers are an
+      output-specific render concern that clients can derive from the
+      logical position plus output metadata.
+    </description>
+
+    <request name="destroy" type="destructor">
+      <description summary="destroy this handle">
+        Stops further position events for this toplevel.
+      </description>
+    </request>
+
+    <event name="app_id">
+      <description summary="client-set application id">
+        Mirrors `wlr_foreign_toplevel_handle_v1.app_id`.  Emitted on
+        the same trigger so clients listening to both protocols see
+        consistent state.
+      </description>
+      <arg name="app_id" type="string"/>
+    </event>
+
+    <event name="title">
+      <description summary="client-set window title">
+        Mirrors `wlr_foreign_toplevel_handle_v1.title`.
+      </description>
+      <arg name="title" type="string"/>
+    </event>
+
+    <event name="output">
+      <description summary="output this toplevel currently lives on">
+        The toplevel's primary output.  Position events on this handle
+        are in this output's coordinate space.  Clients that capture
+        from a different output should ignore this handle's positions.
+      </description>
+      <arg name="output" type="object" interface="wl_output"/>
+    </event>
+
+    <event name="geometry">
+      <description summary="current position and size on the output">
+        Position and size of the toplevel relative to the most-recent
+        `output` event's origin, in **logical (compositor-layout)
+        pixels** — see this interface's coordinate-space contract for
+        the relationship to `wlr-screencopy` physical buffers.
+
+        Emitted on bind for the current state and on every subsequent
+        move/resize that reaches the compositor.
+      </description>
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+    </event>
+
+    <event name="frame_geometry">
+      <description summary="current visible compositor frame bounds">
+        Position and size of the full compositor-visible toplevel frame
+        relative to the most-recent `output` event's origin, in logical
+        pixels. Unlike `geometry`, this includes compositor-owned server
+        side decorations such as labwc titlebars and borders.
+
+        Clients should use `geometry` for app-local coordinate projection
+        (for example AT-SPI rectangles) and `frame_geometry` for matching
+        against captured framebuffer pixels during window movement.
+      </description>
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+    </event>
+
+    <event name="surface_margin">
+      <description summary="margins between the window rect and the wlr_surface buffer">
+        The wlr_surface a CSD client commits is often LARGER than the
+        rect it declares via `xdg_surface.set_window_geometry`. Chromium,
+        Electron, GTK4, and other client-side-decorated apps render a
+        soft drop shadow into the transparent margin between the surface
+        edge and the declared window rect. These shadow pixels are
+        legitimate surface content the compositor draws, but they live
+        OUTSIDE the window's logical bounds.
+
+        This event reports those margins, in logical pixels, so that
+        privileged clients matching captured framebuffer regions to a
+        toplevel can include the visible shadow pixels in the
+        attribution rect for that toplevel. Without this signal, shadow
+        pixels get attributed to neighboring toplevels or the desktop
+        background and produce ghost halos as the window moves.
+
+        All four values are >= 0. Pure server-side-decoration (SSD)
+        clients (e.g. foot, glfw without CSD) emit zeros — their
+        wlr_surface equals their window rect. Re-emitted whenever the
+        surface buffer size or the client's set_window_geometry changes;
+        in practice that is once on map and rarely thereafter.
+
+        Final attribution rect (in compositor logical pixels):
+          x = geometry.x - left
+          y = geometry.y - top
+          w = geometry.width  + left + right
+          h = geometry.height + top  + bottom
+      </description>
+      <arg name="left" type="uint"/>
+      <arg name="top" type="uint"/>
+      <arg name="right" type="uint"/>
+      <arg name="bottom" type="uint"/>
+    </event>
+
+    <event name="state">
+      <description summary="state flags (mirrored from wlr-foreign)">
+        Mirrors `wlr_foreign_toplevel_handle_v1.state`.  Useful for
+        distinguishing the "fullscreen — position is (0,0) by
+        construction" case from "windowed — position is significant."
+        Also exposes the focused/activated bit, which agentic clients
+        use to know which toplevel currently receives keyboard input.
+      </description>
+      <arg name="state" type="array"/>
+    </event>
+
+    <event name="stack_position">
+      <description summary="z-order of this toplevel">
+        Position in the compositor's stacking order, where 0 is the
+        back-most (visually behind everything else) and increasing
+        values move toward the front.  Re-emitted whenever the
+        toplevel's z-order changes — typically on focus change, on
+        explicit raise, on a new toplevel appearing above this one,
+        or on this toplevel being closed (in which case `closed` is
+        emitted before any final stack_position).
+
+        Critical for agentic use: when two toplevels' geometry events
+        overlap on the same output, the higher stack_position is the
+        one a click at that pixel would actually hit.  The compositor
+        guarantees stack_position is unique among currently-mapped
+        toplevels on the same output at any instant.
+      </description>
+      <arg name="position" type="int"/>
+    </event>
+
+    <event name="content_types">
+      <description summary="aggregated content-type-v1 hints">
+        Observational summary of wp_content_type_v1 hints set on the
+        toplevel's surface tree. This is a diagnostic signal only: a
+        client hint of video/photo/game does not prove that matching
+        pixels are visible, changing, or worth routing through a video
+        codec.
+
+        The mask is a bitset:
+
+          1 = photo
+          2 = video
+          4 = game
+
+        content_type_v1's none value is represented by an empty mask.
+        video_surface_count counts surfaces currently reporting video so
+        the portal agent can distinguish one media candidate from many
+        nested or duplicate hints.
+      </description>
+      <arg name="mask" type="uint"/>
+      <arg name="video_surface_count" type="uint"/>
+    </event>
+
+    <event name="damage" since="2">
+      <description summary="source damage mapped into output coordinates">
+        Source-surface commit damage for this toplevel, mapped into the
+        same output-relative logical coordinate space as geometry and
+        frame_geometry. This is a candidate-region hint, not a proof of
+        final visible pixels: it is emitted before occlusion clipping
+        and before conversion into wlr-screencopy's physical buffer
+        coordinates. Clients must still validate against screencopy
+        damage or pixel content before skipping unchanged regions.
+      </description>
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+      <arg name="seq" type="uint"/>
+    </event>
+
+    <event name="done">
+      <description summary="per-handle sync barrier">
+        Emitted after a coherent batch of property events (geometry,
+        state, stack_position, etc.) so clients can apply updates
+        atomically.  Compositors send this:
+
+          - Once after the initial property-event batch following a
+            `toplevel` event from the manager.
+          - After each user-visible state change (e.g. move complete,
+            resize complete, focus change).
+
+        Clients should buffer events between this handle's `done`
+        events to avoid observing intermediate inconsistent states.
+      </description>
+    </event>
+
+    <event name="closed">
+      <description summary="toplevel is closing">
+        After this event, no further events are emitted.  The client
+        should destroy the handle.
+      </description>
+    </event>
+  </interface>
+
+  <interface name="portal_popup_positioning_v1" version="1">
+    <description summary="positioning handle for a single xdg_popup">
+      Carries position+size events for one xdg_popup. The handle is
+      correlated with its owning toplevel via the `parent` event so
+      that the client can route popup pixels to a canvas owned by
+      the same conceptual surface tree, regardless of which sibling
+      toplevels the popup geometrically overlaps with on screen.
+
+      Position uses the same coordinate-space contract as
+      `portal_toplevel_positioning_v1.geometry`: logical (compositor-
+      layout) pixels, before output scale. Popup positions are emitted
+      in COMPOSITOR coords, not parent-relative — i.e. ready to be
+      consumed by clients that already operate against screencopy
+      buffers, without a separate parent-position add.
+    </description>
+
+    <request name="destroy" type="destructor">
+      <description summary="destroy this handle">
+        Stops further events for this popup.
+      </description>
+    </request>
+
+    <event name="parent">
+      <description summary="owning toplevel">
+        The xdg_toplevel that ultimately owns this popup. For nested
+        popups (a menu opening a submenu), this resolves the chain to
+        the ROOT toplevel rather than the immediate parent popup —
+        clients only need to know which toplevel's canvas tree this
+        popup belongs to.
+
+        Emitted once after the manager's `popup` event, before the
+        first `done`.
+      </description>
+      <arg name="parent" type="object" interface="portal_toplevel_positioning_v1"/>
+    </event>
+
+    <event name="geometry">
+      <description summary="current position and size on the output">
+        Position and size of the popup in the parent toplevel's output
+        coordinate space, in logical pixels.
+
+        Emitted on bind for the current state and on every reposition
+        (e.g. submenu arrow keys, anchor change).
+      </description>
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+    </event>
+
+    <event name="done">
+      <description summary="per-handle sync barrier">
+        Emitted after a coherent batch of property events (parent,
+        geometry) so clients can apply updates atomically.
+      </description>
+    </event>
+
+    <event name="closed">
+      <description summary="popup is closing">
+        After this event, no further events are emitted. The client
+        should destroy the handle.
+      </description>
+    </event>
+  </interface>
+
+  <interface name="portal_compositor_menu_positioning_v1" version="1">
+    <description summary="positioning handle for a compositor-internal menu">
+      Carries position+size events for one compositor-internal menu
+      (root menu, window menu, or any submenu thereof). Unlike
+      xdg_popups, compositor menus have no associated wl_surface —
+      the compositor renders them directly into its scene graph.
+
+      Position uses the same coordinate-space contract as
+      `portal_toplevel_positioning_v1.geometry`: logical (compositor-
+      layout) pixels, before output scale. Compositor menus are
+      always stacked above every toplevel and popup; there is no
+      `stack_position` event because their z-order is fixed.
+    </description>
+
+    <request name="destroy" type="destructor">
+      <description summary="destroy this handle">
+        Stops further events for this menu.
+      </description>
+    </request>
+
+    <event name="geometry">
+      <description summary="current position and size on the output">
+        Position and size of the menu's bounding rect in the
+        compositor's output coordinate space, in logical pixels.
+
+        Emitted on map and on every reposition (e.g. arrow-key
+        navigation that opens a submenu does NOT move this menu but
+        emits a separate handle for the submenu; explicit menu
+        moves are rare but emitted here).
+      </description>
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+    </event>
+
+    <event name="done">
+      <description summary="per-handle sync barrier">
+        Emitted after a coherent batch of property events (geometry)
+        so clients can apply updates atomically.
+      </description>
+    </event>
+
+    <event name="closed">
+      <description summary="menu is closing">
+        After this event, no further events are emitted. The client
+        should destroy the handle.
+      </description>
+    </event>
+  </interface>
+</protocol>
