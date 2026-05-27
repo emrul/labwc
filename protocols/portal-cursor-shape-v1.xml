@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="portal_cursor_shape_v1">
+  <copyright>
+    Copyright © 2026 portal-agent contributors
+
+    Permission to use, copy, modify, distribute, and sell this
+    software and its documentation for any purpose is hereby granted
+    without fee, provided that the above copyright notice appear in
+    all copies and that both that copyright notice and this permission
+    notice appear in supporting documentation, and that the name of
+    the copyright holders not be used in advertising or publicity
+    pertaining to distribution of the software without specific,
+    written prior permission.  The copyright holders make no
+    representations about the suitability of this software for any
+    purpose.  It is provided "as is" without express or implied
+    warranty.
+  </copyright>
+
+  <description summary="forward the current cursor shape to privileged clients">
+    This protocol forwards the compositor's current cursor shape (as
+    requested by client apps via wp_cursor_shape_v1, or chosen
+    internally by labwc) to a privileged remote-desktop tool.  It
+    exists so the remote viewer can render its own cursor with the
+    matching CSS `cursor:` value at zero RTT in position, while the
+    server-side cursor sprite stays hidden (see PORTAL_HIDE_CURSOR).
+
+    This is a labwc extension; it is *not* a generalisation of
+    wp_cursor_shape_v1, which is a client-to-compositor request
+    interface.  This is a compositor-to-observer event stream.
+  </description>
+
+  <interface name="portal_cursor_shape_manager_v1" version="1">
+    <description summary="cursor-shape forwarding manager">
+      Singleton global.  After binding, the compositor emits one
+      `shape` event with the current shape, then continues to emit
+      `shape` on every change.
+    </description>
+
+    <request name="destroy" type="destructor">
+      <description summary="destroy the manager">
+        Releases the manager.  Subsequent shape changes are not
+        delivered to this client.
+      </description>
+    </request>
+
+    <event name="shape">
+      <description summary="cursor shape changed">
+        Emitted immediately on bind with the current shape, then on
+        every observed change.
+
+        The `shape` argument matches `wp_cursor_shape_device_v1.shape`
+        enum values (1..34 inclusive).  Compositor-internal cursors
+        (e.g. resize edges over server-side decorations) are mapped
+        onto the same enum.
+
+        Implementations should treat unknown values (outside
+        1..34) as "default" for forward-compatibility.
+      </description>
+      <arg name="shape" type="uint"/>
+    </event>
+  </interface>
+</protocol>
