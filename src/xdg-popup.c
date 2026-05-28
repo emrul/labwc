@@ -12,6 +12,7 @@
 #include "common/macros.h"
 #include "common/mem.h"
 #include "labwc.h"
+#include "portal-toplevel-positioning.h"
 #include "node.h"
 #include "output.h"
 #include "view.h"
@@ -171,4 +172,6 @@ xdg_popup_create(struct view *view, struct wlr_xdg_popup *wlr_popup)
 		LAB_NODE_XDG_POPUP, view, /*data*/ NULL);
 
 	wlr_scene_xdg_surface_create(&view->capture.scene->tree, wlr_popup->base);
+
+	portal_positioning_popup_mapped(view, wlr_popup);
 }
