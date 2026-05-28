@@ -563,6 +563,7 @@ view_moved(struct view *view)
 	}
 	view_update_outputs(view);
 	ssd_update_geometry(view->ssd);
+	wl_signal_emit_mutable(&view->events.new_geometry, view);
 	cursor_update_focus();
 	if (rc.resize_indicator && server.grabbed_view == view) {
 		resize_indicator_update(view);
@@ -2472,6 +2473,7 @@ view_init(struct view *view)
 	wl_signal_init(&view->events.new_app_id);
 	wl_signal_init(&view->events.new_title);
 	wl_signal_init(&view->events.new_outputs);
+	wl_signal_init(&view->events.new_geometry);
 	wl_signal_init(&view->events.maximized);
 	wl_signal_init(&view->events.minimized);
 	wl_signal_init(&view->events.fullscreened);
