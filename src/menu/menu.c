@@ -24,6 +24,7 @@
 #include "common/xml.h"
 #include "config/rcxml.h"
 #include "labwc.h"
+#include "portal-toplevel-positioning.h"
 #include "node.h"
 #include "output.h"
 #include "scaled-buffer/scaled-font-buffer.h"
@@ -1138,6 +1139,8 @@ _close(struct menu *menu)
 	if (menu->scene_tree) {
 		wlr_scene_node_set_enabled(&menu->scene_tree->node, false);
 	}
+	portal_positioning_compositor_menu_set_visible(menu->server, menu,
+		(struct wlr_box){0}, false);
 	menu_set_selection(menu, NULL);
 	if (menu->selection.menu) {
 		_close(menu->selection.menu);
@@ -1174,6 +1177,17 @@ open_menu(struct menu *menu, struct wlr_box anchor_rect)
 	}
 	menu_reposition(menu, anchor_rect);
 	wlr_scene_node_set_enabled(&menu->scene_tree->node, true);
+	/*
+	 * Portal: broadcast menu visibility from the single open_menu()
+	 * choke point so root, pipemenu, submenu and async-pipemenu opens
+	 * are all covered. scene_tree is guaranteed non-NULL here (asserted
+	 * above), unlike the per-call-site hooks this replaced.
+	 */
+	portal_positioning_compositor_menu_set_visible(menu->server, menu,
+		(struct wlr_box){.x = menu->scene_tree->node.x,
+			.y = menu->scene_tree->node.y,
+			.width = menu->size.width,
+			.height = menu->size.height}, true);
 }
 
 static void open_pipemenu_async(struct menu *pipemenu, struct wlr_box anchor_rect);
