@@ -404,7 +404,7 @@ cursor_set_visible(struct seat *seat, bool visible)
 		return;
 	}
 
-	seat->cursor_visible = visible;
+	seat->cursor_visible = visible && !getenv("PORTAL_HIDE_CURSOR");
 	cursor_update_image(seat);
 }
 
@@ -1656,6 +1656,7 @@ cursor_init(struct seat *seat)
 
 	/* Set the initial cursor image so the cursor is visible right away */
 	cursor_set(seat, LAB_CURSOR_DEFAULT);
+	if (getenv("PORTAL_HIDE_CURSOR")) cursor_set_visible(seat, false);
 
 	dnd_init(seat);
 
