@@ -18,6 +18,7 @@
 #include <wlr/util/region.h>
 #include "action.h"
 #include "common/macros.h"
+#include "portal-cursor-shape.h"
 #include "common/mem.h"
 #include "config/mousebind.h"
 #include "config/rcxml.h"
@@ -220,6 +221,7 @@ handle_request_set_shape(struct wl_listener *listener, void *data)
 	 * Omit set shape when the current cursor is
 	 * invisible, e.g. on touch input.
 	 */
+	if (event->seat_client == focused_client) portal_cursor_shape_broadcast(&server, event->shape);
 	if (!seat->cursor_visible) {
 		return;
 	}
@@ -392,6 +394,7 @@ cursor_set(struct seat *seat, enum lab_cursors cursor)
 			cursor_names[cursor]);
 	}
 	seat->server_cursor = cursor;
+	portal_cursor_shape_broadcast(&server, portal_cursor_shape_from_lab(cursor));
 }
 
 void
@@ -588,6 +591,7 @@ cursor_update_common(const struct cursor_context *ctx,
 		wlr_seat_pointer_notify_enter(wlr_seat, ctx->surface,
 			ctx->sx, ctx->sy);
 		seat->server_cursor = LAB_CURSOR_CLIENT;
+		portal_cursor_shape_notify_surface_enter(&server, ctx->surface);
 	} else {
 		/*
 		 * Cursor is over a server (labwc) surface.  Clear focus
