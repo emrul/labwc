@@ -28,6 +28,9 @@ server_protocols = [
 	'cosmic-workspace-unstable-v1.xml',
 	'wlr-layer-shell-unstable-v1.xml',
 	'wlr-output-power-management-unstable-v1.xml',
+	wl_protocol_dir / 'staging/content-type/content-type-v1.xml',
+	'portal-toplevel-positioning-v1.xml',
+	'portal-cursor-shape-v1.xml',
 ]
 
 server_protos_src = []
