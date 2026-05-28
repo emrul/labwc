@@ -19,6 +19,7 @@
 #include "labwc.h"
 #include "node.h"
 #include "output.h"
+#include "portal-toplevel-positioning.h"
 #include "view.h"
 #include "view-impl-common.h"
 #include "window-rules.h"
@@ -264,6 +265,7 @@ handle_commit(struct wl_listener *listener, void *data)
 
 	/* Must receive commit signal before accessing surface->current* */
 	struct wlr_surface_state *state = &view->surface->current;
+	portal_positioning_view_damage(view, &state->surface_damage);
 	struct wlr_box *current = &view->current;
 
 	/*
