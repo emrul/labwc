@@ -4,6 +4,7 @@
 #include "common/mem.h"
 #include "foreign-toplevel/ext-foreign.h"
 #include "foreign-toplevel/wlr-foreign.h"
+#include "portal-toplevel-positioning.h"
 #include "view.h"
 
 struct foreign_toplevel {
@@ -22,6 +23,7 @@ foreign_toplevel_create(struct view *view)
 	struct foreign_toplevel *toplevel = znew(*toplevel);
 	wlr_foreign_toplevel_init(&toplevel->wlr_toplevel, view);
 	ext_foreign_toplevel_init(&toplevel->ext_toplevel, view);
+	portal_positioning_view_mapped(toplevel);
 
 	return toplevel;
 }
@@ -38,7 +40,14 @@ void
 foreign_toplevel_destroy(struct foreign_toplevel *toplevel)
 {
 	assert(toplevel);
+	portal_positioning_view_unmapped(toplevel);
 	wlr_foreign_toplevel_finish(&toplevel->wlr_toplevel);
 	ext_foreign_toplevel_finish(&toplevel->ext_toplevel);
 	free(toplevel);
+}
+
+struct view *
+foreign_toplevel_get_view(struct foreign_toplevel *toplevel)
+{
+	return toplevel->wlr_toplevel.view;
 }
