@@ -21,6 +21,7 @@
 #include "menu/menu.h"
 #include "node.h"
 #include "output.h"
+#include "portal-toplevel-positioning.h"
 #include "snap-constraints.h"
 #include "view.h"
 #include "view-impl-common.h"
@@ -278,6 +279,7 @@ handle_commit(struct wl_listener *listener, void *data)
 		return;
 	}
 
+	portal_positioning_view_damage(view, &view->surface->current.surface_damage);
 	struct wlr_box size = xdg_surface->geometry;
 	bool update_required = false;
 
