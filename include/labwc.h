@@ -324,6 +324,10 @@ struct server {
 	pid_t primary_client_pid;
 
 	char *title_fmt;
+
+	struct portal_positioning_manager *portal_positioning_manager;
+	struct portal_content_type_manager *portal_content_type_manager;
+	struct portal_cursor_shape_manager *portal_cursor_shape_manager;
 };
 
 /* defined in main.c */
