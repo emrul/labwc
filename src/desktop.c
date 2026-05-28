@@ -11,6 +11,7 @@
 #include "common/scene-helpers.h"
 #include "dnd.h"
 #include "labwc.h"
+#include "portal-csd-margin.h"
 #include "layers.h"
 #include "node.h"
 #include "output.h"
@@ -372,7 +373,7 @@ get_cursor_context(struct server *server)
 		dnd_icons_show(&server->seat, true);
 	}
 
-	if (try_csd_margin_resize_context(server, &ret)) {
+	if (!portal_any_view_window_contains_cursor(server) && try_csd_margin_resize_context(server, &ret)) {
 		return ret;
 	}
 
