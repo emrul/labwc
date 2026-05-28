@@ -26,6 +26,7 @@
 #include "common/spawn.h"
 #include "common/string-helpers.h"
 #include "labwc.h"
+#include "portal-toplevel-positioning.h"
 #include "menu/menu.h"
 #include "workspaces.h"
 #include "view.h"
@@ -1359,6 +1360,7 @@ static void
 _close(struct menu *menu)
 {
 	wlr_scene_node_set_enabled(&menu->scene_tree->node, false);
+	portal_positioning_compositor_menu_set_visible(menu->server, menu, (struct wlr_box){0}, false);
 	menu_set_selection(menu, NULL);
 	if (menu->selection.menu) {
 		_close(menu->selection.menu);
@@ -1391,6 +1393,7 @@ menu_open_root(struct menu *menu, int x, int y)
 	wlr_scene_node_set_enabled(&menu->scene_tree->node, true);
 	menu->server->menu_current = menu;
 	selected_item = NULL;
+	portal_positioning_compositor_menu_set_visible(menu->server, menu, (struct wlr_box){.x = menu->scene_tree->node.x, .y = menu->scene_tree->node.y, .width = menu->size.width, .height = menu->size.height}, true);
 	seat_focus_override_begin(&menu->server->seat,
 		LAB_INPUT_STATE_MENU, LAB_CURSOR_DEFAULT);
 }
@@ -1474,6 +1477,7 @@ create_pipe_menu(struct menu_pipe_context *ctx)
 
 	/* Finally open the new submenu tree */
 	wlr_scene_node_set_enabled(&pipe_menu->scene_tree->node, true);
+	portal_positioning_compositor_menu_set_visible(pipe_menu->server, pipe_menu, (struct wlr_box){.x = pipe_menu->scene_tree->node.x, .y = pipe_menu->scene_tree->node.y, .width = pipe_menu->size.width, .height = pipe_menu->size.height}, true);
 	pipe_parent->selection.menu = pipe_menu;
 
 restore_menus:
@@ -1645,6 +1649,7 @@ menu_process_item_selection(struct menuitem *item)
 		/* And open the new submenu tree */
 		wlr_scene_node_set_enabled(
 			&item->submenu->scene_tree->node, true);
+		portal_positioning_compositor_menu_set_visible(item->submenu->server, item->submenu, (struct wlr_box){.x = item->submenu->scene_tree->node.x, .y = item->submenu->scene_tree->node.y, .width = item->submenu->size.width, .height = item->submenu->size.height}, true);
 	}
 
 	item->parent->selection.menu = item->submenu;
