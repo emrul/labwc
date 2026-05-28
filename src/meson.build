@@ -33,6 +33,10 @@ labwc_sources = files(
   'workspaces.c',
   'xdg.c',
   'xdg-popup.c',
+  'portal-content-type.c',
+  'portal-toplevel-positioning.c',
+  'portal-cursor-shape.c',
+  'portal-csd-margin.c',
 )
 
 if have_xwayland
