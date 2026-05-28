@@ -3,6 +3,7 @@
 #include <wayland-server-core.h>
 #include "common/macros.h"
 #include "common/mem.h"
+#include "portal-toplevel-positioning.h"
 #include "labwc.h"
 #include "view.h"
 #include "foreign-toplevel-internal.h"
@@ -58,6 +59,7 @@ foreign_toplevel_create(struct view *view)
 	wl_signal_init(&toplevel->events.toplevel_destroy);
 
 	wlr_foreign_toplevel_init(toplevel);
+	portal_positioning_view_mapped(toplevel);
 	ext_foreign_toplevel_init(toplevel);
 
 	return toplevel;
@@ -76,6 +78,7 @@ foreign_toplevel_destroy(struct foreign_toplevel *toplevel)
 	assert(toplevel);
 	wl_signal_emit_mutable(&toplevel->events.toplevel_destroy, NULL);
 	assert(!toplevel->wlr_toplevel.handle);
+	portal_positioning_view_unmapped(toplevel);
 	assert(!toplevel->ext_toplevel.handle);
 	free(toplevel);
 }
