@@ -75,6 +75,9 @@
 #include "ssd.h"
 #include "theme.h"
 #include "view.h"
+#include "portal-content-type.h"
+#include "portal-toplevel-positioning.h"
+#include "portal-cursor-shape.h"
 #include "workspaces.h"
 #include "xwayland.h"
 
@@ -833,6 +836,9 @@ server_init(void)
 		wlr_xdg_foreign_registry_create(server.wl_display);
 	wlr_xdg_foreign_v1_create(server.wl_display, registry);
 	wlr_xdg_foreign_v2_create(server.wl_display, registry);
+	portal_content_type_manager_create(&server);
+	portal_positioning_manager_create(&server);
+	portal_cursor_shape_manager_create(&server);
 
 #if HAVE_LIBSFDO
 	desktop_entry_init();
