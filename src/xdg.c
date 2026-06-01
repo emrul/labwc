@@ -50,6 +50,18 @@ xdg_surface_from_view(struct view *view)
 	return xdg_toplevel_view->xdg_surface;
 }
 
+/*
+ * Portal downstream: px of the CSD margin kept rendered just outside
+ * xdg window_geometry. Chromium's interactive resize grip sits in the
+ * (near-transparent) band right at/just-outside the declared geometry;
+ * clipping flush to geometry (or, after scale rounding, a px or two
+ * inside it) renders that grip away, so the window can't be resized from
+ * the stream. The soft shadow is much wider than this band, so keeping a
+ * thin border still drops the bulk of the shadow while preserving resize.
+ * Tune if the grip is still unreachable (raise) or shadow bleeds (lower).
+ */
+#define LAB_CSD_RESIZE_HITBOX_PX 8
+
 static void
 apply_csd_content_clip(struct view *view, const struct wlr_box *clip)
 {
@@ -58,13 +70,36 @@ apply_csd_content_clip(struct view *view, const struct wlr_box *clip)
 	}
 
 	/*
-	 * Portal downstream: CSD clients such as Chromium can render soft
-	 * shadows into the surface area outside xdg window_geometry. Those
-	 * pixels are already blended by the time wlr-screencopy sees them,
-	 * so clip the xdg subsurface tree to the declared visible window
-	 * geometry before composition.
+	 * Clip the xdg subsurface tree to the declared visible window
+	 * geometry (dropping CSD soft shadows that wlr-screencopy would
+	 * otherwise capture), grown by LAB_CSD_RESIZE_HITBOX_PX so the
+	 * client's edge resize grip stays rendered + grabbable. Clamp to the
+	 * committed surface buffer so the clip never samples past real pixels.
 	 */
-	wlr_scene_subsurface_tree_set_clip(&view->content_tree->node, clip);
+	struct wlr_box grown = *clip;
+	grown.x -= LAB_CSD_RESIZE_HITBOX_PX;
+	grown.y -= LAB_CSD_RESIZE_HITBOX_PX;
+	grown.width += 2 * LAB_CSD_RESIZE_HITBOX_PX;
+	grown.height += 2 * LAB_CSD_RESIZE_HITBOX_PX;
+	if (view->surface) {
+		int sw = view->surface->current.width;
+		int sh = view->surface->current.height;
+		if (grown.x < 0) {
+			grown.width += grown.x;
+			grown.x = 0;
+		}
+		if (grown.y < 0) {
+			grown.height += grown.y;
+			grown.y = 0;
+		}
+		if (sw > 0 && grown.x + grown.width > sw) {
+			grown.width = sw - grown.x;
+		}
+		if (sh > 0 && grown.y + grown.height > sh) {
+			grown.height = sh - grown.y;
+		}
+	}
+	wlr_scene_subsurface_tree_set_clip(&view->content_tree->node, &grown);
 }
 
 static struct wlr_xdg_toplevel *
