@@ -1,12 +1,19 @@
-# Portal Patches — `portal` branch
+# Portal Patches — `portal` / `portal-0.20` branches
 
 This fork carries a small set of patches on top of upstream labwc
 to support [portal-agent](https://github.com/emrul/portal-agent),
 a Wayland-native remote-desktop streaming agent.
 
-The `portal` branch is maintained as a stack of focused commits on
-top of an upstream tag (currently `0.9.7`), with `git rerere`
-enabled so cross-tag rebases replay previously-resolved conflicts.
+Two branch lines exist:
+
+| Branch | Upstream base | wlroots | Status |
+|---|---|---|---|
+| `portal` | `0.9.7` (tag `portal/0.9.7-1`) | 0.19 (apt) | previous line, kept for rollback |
+| `portal-0.20` | `0.20.3` (tag pending) | 0.20.2 (built from source) | **current** |
+
+Each branch is maintained as a stack of focused commits on top of an
+upstream tag, with `git rerere` enabled so cross-tag rebases replay
+previously-resolved conflicts.
 
 The fork is **buildable standalone** — the portal hooks add new
 behavior but don't gate any upstream functionality, so a vanilla
@@ -92,44 +99,48 @@ conditions to identify hooks that have become obsolete.
 
 ## Rebase runbook
 
-When upstream cuts a new tag we want (say `0.9.8`):
+Within a wlroots major line (say `0.20.3` → `0.20.4`):
 
 ```sh
 git fetch upstream
-git checkout portal
-git rebase 0.9.8                 # rerere replays prior resolutions
-# Inspect any unresolved conflicts. The 4 sidecar commits + the 5
-# pure-additive hook commits should need zero attention. Conflict
-# attention typically lands on:
+git checkout portal-0.20
+git rebase 0.20.4                # rerere replays prior resolutions
+# Inspect any unresolved conflicts. Group A + the pure-additive hook
+# commits should need zero attention. Conflict attention typically
+# lands on:
 #   - meson.build registrations (commit 3) — list reorders
 #   - server.c init (commit 4) — server_init() body shifts
 #   - cursor.c hooks (commits 10, 11) — adjacent code changes
-# A wlroots major bump (as in the 0.8.3→0.9.7 walk) is the heavy
-# case — see the audit log for the kinds of API edits to expect.
 
 meson setup build --prefix=/usr --buildtype=release -Dxwayland=enabled
 ninja -C build                   # quick smoke
 ./build/labwc -V                 # at least make sure it runs
 
 # If clean and the smoke test runs:
-git tag portal/0.9.8-1
-git push origin portal portal/0.9.8-1
+git tag portal/0.20.4-1
+git push origin portal-0.20 portal/0.20.4-1
 
-# If hooks were modified, bump to portal/0.9.8-2, etc.
+# If hooks were modified, bump to portal/0.20.4-2, etc.
 ```
+
+A **wlroots major bump** (e.g. `0.20` → `0.21`) is the heavy case: expect
+the same shape of API migration described in the audit log below, plus a
+`WLR_TAG`/`WLR_COMMIT` bump in `container/Containerfile.wlroots` and a
+`build-wlroots` image-tag bump in `container/Makefile`. Verify the new
+wlroots tag's commit sha with `git ls-remote --tags` before pinning —
+`Containerfile.wlroots` asserts the sha matches.
 
 Then in portal-agent:
 
 ```sh
 cd container/labwc
-git fetch && git checkout portal/0.9.8-1
+git fetch && git checkout portal/0.20.4-1
 cd ../..
 git add container/labwc
-git commit -m "bump labwc submodule to portal/0.9.8-1"
+git commit -m "bump labwc submodule to portal/0.20.4-1"
 # If the new tag changes the wlroots/ffmpeg deps, bump
 # container/Containerfile.labwc + container/Containerfile + the
-# build-labwc image tag in container/Makefile to match (see the
-# 0.9.7 walk for the SONAME-rename checklist).
+# LABWC_TAG/WLR_TAG in container/Makefile to match.
 make build-labwc                 # end-to-end build verify
 ```
 
@@ -232,51 +243,131 @@ recreated on VT switch, layer-shell reappearance) do **not** affect
 portal-agent — we run the headless backend (`WLR_BACKENDS=headless`),
 so there is no DRM/VT path.
 
+### 0.9.7 → 0.20.3 (wlroots 0.19 → 0.20) — walked 2026-11-08
+
+The version jump `0.9.7 → 0.20.0` is upstream aligning the minor number
+with its wlroots requirement; `0.9.x` continues as a bug-fix-only
+maintenance branch (`v0.9`), while `0.20.x` is the new feature line.
+The port was done as a fresh cherry-pick series from `0.20.3` onto a new
+`portal-0.20` branch rather than a replay of the `portal` branch, because
+the intervening refactor (below) makes a textual rebase misleadingly
+clean — 4 one-hunk conflicts only — while the *semantic* migration is
+much larger.
+
+**wlroots:** **0.19 → 0.20** (headline). Upstream requires
+`wlroots-0.20 >=0.20.1,<0.21`. Ubuntu 26.04 LTS ships 0.19.2; 26.10
+ships 0.20.2 but is an interim with a 9-month window. We therefore stay
+on the LTS and build wlroots 0.20.2 from source — see
+[wlroots 0.20 from source](#wlroots-020-from-source-now-the-default).
+
+**The `struct server` singleton refactor.** 0.20 replaced the
+per-object `struct server *server` back-pointers with a file-scope
+`extern struct server server;`. `struct view` lost `view->server`;
+`struct seat` lost `seat->server`; many helpers dropped their
+`struct server *` parameter. Counting our code, the mechanical edits
+were:
+
+- 39 `server->foo` → `server.foo`
+- 13 `view->server->foo` → `server.foo`
+- 4 `seat->server->foo` → `server.foo`
+- ~19 function signatures
+
+**Migration strategy (kept narrow on purpose):** our `portal_*.c`
+sidecar helpers keep their `struct server *server` parameters, and hook
+call sites pass `&server`. Renaming an argument `server` inside those
+helpers while a global of the same name exists would shadow the global
+and read confusingly, but the parameter form keeps the helpers
+testable and unchanged across wlroots bumps. Only genuinely-new code
+inside upstream files uses the global directly.
+
+**Hooks / features modified during the port** (topology unchanged —
+still 4 + 1 + 12 commits):
+
+| Commit | Edit |
+|---|---|
+| `feat: toplevel-positioning` | `view->server` / `seat->server` / `toplevel->server` → `server` global (incl. two inline `foreign_toplevel_get_view(t)->server->` sites). `if (view == server.active_view)`. |
+| `feat: content-type` | `view->server->portal_content_type_manager` → `server.portal_content_type_manager`. |
+| `feat: cursor-shape` | `seat->server` → `&server` at the two broadcast call sites. |
+| `hook 4: create managers in server_init()` | Body shifted; `server_init()` now takes no arguments. |
+| `hook 9: menu visibility` | `menu->server` no longer exists on `struct menu` → pass `&server`. |
+| `hook 12: guard CSD margin resize` | `&server` for both `portal_any_view_window_contains_cursor()` and `try_csd_margin_resize_context()`. |
+
+The remaining commits (sidecars; hooks 1–3, 5–8, 10, 11) replayed with
+zero edits. All 20 commits compile in sequence (verified by building the
+container at the branch tip; see the note below on per-commit builds).
+
+**New upstream capability worth a spike:**
+
+- **Partial toplevel capture** (0.20.0) via
+  `wlr_ext_foreign_toplevel_image_capture_source_manager_v1`. Lets a
+  capture source target a single toplevel instead of the whole output —
+  directly relevant to our per-window tile/encoder attribution. Caveats
+  per upstream: no XWayland child windows, unmanaged windows, xdg child
+  positioning, subsurfaces, or popup positioning. Our capture path is
+  whole-output wlr-screencopy today; treat as a follow-up.
+
+**No `SAFE-TO-DROP-IF` fired** — every portal hook is still required.
+Content-type-v1, the toplevel-positioning protocol, surface-damage
+forwarding and CSD shadow clipping are all still absent upstream; the
+`git cherry` "already upstream" hits are upstream's own commits that
+were on `master` when the fork first branched from 0.9.5.
+
+**Container wiring:** `container/Containerfile.wlroots` was added and
+`make build-wlroots` promoted from escape hatch to the default path. The
+`labwc_builder` stage needed the full `Requires.private` dep list
+(`libegl-dev`, `libgbm-dev`, `libgles-dev`, `liblcms2-dev`, `libudev-dev`,
+`libseat-dev`, `libdisplay-info-dev`, and the `xcb-*` dev packages)
+because apt's `libwlroots-0.19-dev` used to pull them in transitively and
+our source-built `.pc` does not — without them pkg-config's `--exists`
+fails even though meson only needs headers.
+
 ---
 
-## Self-built wlroots escape hatch
+## wlroots 0.20 from source (now the default)
 
-We deliberately do **not** build wlroots from source today: Ubuntu
-26.04 LTS packages `libwlroots-0.19-dev`, which is exactly what the
-`0.9.x` labwc line needs, so we get it for free from apt. This keeps
-`Containerfile.labwc` a thin "apt build-deps + meson + ninja" image.
+The `portal` (0.9.x) line took wlroots from apt: Ubuntu 26.04 LTS
+packages `libwlroots-0.19-dev`, exactly what labwc `0.9.x` needs.
+`portal-0.20` cannot do that — it needs `wlroots-0.20
+>=0.20.1,<0.21`, and the only Ubuntu release carrying 0.20.2 is 26.10,
+an interim with a 9-month support window (the same Plucky EOL trap the
+2026-05-28 base move escaped). The options were:
 
-That free ride ends when we want a labwc release that requires a
-wlroots newer than what the base Ubuntu LTS packages — i.e. moving to
-labwc `master` / `0.20.x`, which builds against **wlroots-0.20**. At
-that point the options are, in increasing order of burden:
+1. **Wait for the next Ubuntu LTS** to package wlroots 0.20. Zero
+   maintenance, but it pins us to the 0.9.x labwc line meanwhile.
+2. **Pin a PPA / newer interim Ubuntu.** Low burden, short support
+   window, and no production-quality wlroots-0.20 PPA was found.
+3. **Build wlroots from source** in a dedicated stage.
 
-1. **Wait for the next Ubuntu LTS** to package the newer wlroots and
-   bump `BASE_IMAGE`. Zero maintenance; we just stay one wlroots
-   release behind. This is the default — only leave it if a specific
-   `0.20+` feature is load-bearing for portal-agent.
-2. **Pin a PPA / newer interim Ubuntu** that packages the wlroots we
-   need. Low burden, but interim releases have ~9-month support
-   windows (the Plucky EOL trap we just escaped — do not re-anchor on
-   a short-support release).
-3. **Build wlroots from source** in a dedicated stage and install it
-   into `Containerfile.labwc` before the labwc build. Highest burden:
-   we then own wlroots's own meson deps (libdrm, libinput, Pixman,
-   Wayland, hwdata, seatd, libdisplay-info versions) and must track
-   its API churn ourselves. Sketch:
+We took (3). `container/Containerfile.wlroots` builds wlroots 0.20.2
+on the same `ubuntu:resolute` base, pinned by tag **and** commit sha
+(the build asserts the tag resolves to the pinned sha), and exports
+only the install tree:
 
-   ```dockerfile
-   FROM ubuntu:<base> AS wlroots_builder
-   RUN apt-get build-dep -y wlroots   # or hand-list meson deps
-   RUN git clone --branch 0.20.0 https://gitlab.freedesktop.org/wlroots/wlroots
-   RUN meson setup build wlroots -Dprefix=/usr -Dexamples=false \
-       && ninja -C build install      # DESTDIR for a copyable tree
-   # then COPY the install tree into the labwc build stage
-   ```
+```
+make build-wlroots        # -> portal-wlroots-builder:0.20.2
+make build-labwc          # depends on build-wlroots; labwc_builder
+                          # COPY --from=wlroots /out /
+make build                # runtime image also COPYs libwlroots-0.20.so
+```
 
-   **Do not take on (3) until the labwc port itself is green against
-   the source-built wlroots** — prove the labwc build first with a
-   throwaway source-wlroots stage, then decide whether the feature is
-   worth the standing maintenance cost.
+Two gotchas learned the hard way:
 
-The trigger to revisit this is a labwc `0.20.x` (or later) release
-carrying something portal-agent actually needs; until then `0.9.x` on
-distro wlroots-0.19 is the supported configuration.
+- **`Requires.private` is not free.** The source-built
+  `wlroots-0.20.pc` lists EGL/GBM/GLES/lcms2/libudev/libseat/
+  libdisplay-info and the `xcb-*` modules under `Requires.private`. apt's
+  `libwlroots-0.19-dev` pulled those in transitively; a source-built
+  `.pc` does not, so `pkg-config --exists` fails (and meson reports
+  "found: NO") even though only headers are needed. They are now listed
+  explicitly in `Containerfile.labwc`.
+- **The installed SONAME is unversioned.** `meson install` here produces
+  a single `libwlroots-0.20.so` with no symlink chain, so the runtime
+  image can `COPY` that one file and DT_NEEDED resolves to the plain
+  name.
+
+When wlroots cuts a new 0.20.x, bump `WLR_TAG`/`WLR_COMMIT` in
+`Containerfile.wlroots` and the `portal-wlroots-builder:<ver>` tag in
+`container/Makefile`. Verify the tag's sha with `git ls-remote --tags`
+first; the build fails loudly on a mismatch.
 
 ---
 
