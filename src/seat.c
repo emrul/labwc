@@ -622,6 +622,13 @@ handle_new_input(struct wl_listener *listener, void *data)
 	seat_add_device(seat, input);
 }
 
+void
+seat_add_virtual_touch(struct seat *seat, struct wlr_input_device *dev)
+{
+	struct input *input = new_touch(seat, dev);
+	seat_add_device(seat, input);
+}
+
 static void
 handle_new_virtual_pointer(struct wl_listener *listener, void *data)
 {
