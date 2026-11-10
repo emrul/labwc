@@ -1,3 +1,8 @@
+> **Portal fork.** This is Portal Desktop's fork of labwc. The patched builds are on
+> `upgrade/labwc-v*` branches. What they carry, and why, is in
+> [docs/portal-patches.md](docs/portal-patches.md). This `master` branch is upstream plus that
+> ledger; nothing is built from it.
+
 # labwc
 
 <h3 align="center">[<a
