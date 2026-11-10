@@ -53,10 +53,15 @@ for Portal.
 |---|---|
 | Upstream base | `0.20.3` |
 | Integration branch | `upgrade/labwc-v0.20.3` |
-| Pinned commit | `9394c236a67af9d7ebac6a69fdfce9093949c2c2` |
+| Pinned commit | `78f21457352a23c5165d235611fe46bfeab8f3bb` (the packaging commit) |
 | Version | `0.20.4001` |
-| Tag | `portal-labwc-v0.20.4001`, once the consumer trial passes |
+| Tag | `portal-labwc-v0.20.4001` (annotated) → `78f2145735`. Consumer trial passed on 10 November 2026: the Ubuntu 26.04 session image, with German keys, cursor shapes and native touch |
 | Consumer | `container/flake.nix` in Portal Desktop (`labwc-portal`, built against wlroots 0.20 from the catalog's nixpkgs pin) |
+
+The integration line is upstream `0.20.3`, then LABWC-P01..P19 in ID order, each a `cherry-pick -x`
+of its topic. Last comes the packaging commit `78f2145735`, which sets labwc's meson version to
+`0.20.4001` and is kept separate from the patches, as fory does. nixpkgs' version check and
+`labwc --version` then name the Portal build.
 
 ## Patches
 
