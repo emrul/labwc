@@ -36,6 +36,7 @@ labwc_sources = files(
   'portal-content-type.c',
   'portal-toplevel-positioning.c',
   'portal-cursor-shape.c',
+  'portal-virtual-touch.c',
   'portal-csd-margin.c',
 )
 

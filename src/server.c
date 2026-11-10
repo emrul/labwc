@@ -78,6 +78,7 @@
 #include "portal-content-type.h"
 #include "portal-toplevel-positioning.h"
 #include "portal-cursor-shape.h"
+#include "portal-virtual-touch.h"
 #include "workspaces.h"
 #include "xwayland.h"
 
@@ -839,6 +840,7 @@ server_init(void)
 	portal_content_type_manager_create(&server);
 	portal_positioning_manager_create(&server);
 	portal_cursor_shape_manager_create(&server);
+	portal_virtual_touch_manager_create(&server);
 
 #if HAVE_LIBSFDO
 	desktop_entry_init();

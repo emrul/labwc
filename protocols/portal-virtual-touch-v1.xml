@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="portal_virtual_touch_v1">
+  <copyright>
+    Copyright © 2026 Portal Desktop contributors
+
+    Permission to use, copy, modify, distribute, and sell this
+    software and its documentation for any purpose is hereby granted
+    without fee, provided that the above copyright notice appear in
+    all copies and that both that copyright notice and this permission
+    notice appear in supporting documentation, and that the name of
+    the copyright holders not be used in advertising or publicity
+    pertaining to distribution of the software without specific,
+    written prior permission.  The copyright holders make no
+    representations about the suitability of this software for any
+    purpose.  It is provided "as is" without express or implied
+    warranty.
+  </copyright>
+
+  <description summary="inject multi-touch from a privileged remote-desktop client">
+    Lets a remote-desktop host relay a viewer's touchscreen to the
+    session as a real touch device: each created portal_virtual_touch_v1
+    is a wlr_touch on the seat, and its requests become the same down,
+    motion, up, cancel and frame events a hardware touchscreen gives the
+    compositor, so clients see wl_touch (and the compositor's own pointer
+    emulation for clients without touch support).  wlroots has no
+    virtual-touch protocol; this is a labwc extension in the spirit of
+    zwlr_virtual_pointer_v1.
+  </description>
+
+  <interface name="portal_virtual_touch_manager_v1" version="1">
+    <description summary="virtual touch device factory">
+      Singleton global.
+    </description>
+    <request name="create_touch">
+      <description summary="create a virtual touch device on the default seat"/>
+      <arg name="id" type="new_id" interface="portal_virtual_touch_v1"/>
+    </request>
+    <request name="destroy" type="destructor">
+      <description summary="destroy the manager; existing devices remain"/>
+    </request>
+  </interface>
+
+  <interface name="portal_virtual_touch_v1" version="1">
+    <description summary="a virtual touchscreen">
+      Positions are given as x / x_extent and y / y_extent: a fraction of
+      the area the device is mapped to (the whole output layout unless the
+      compositor maps it to an output), as zwlr_virtual_pointer_v1's
+      motion_absolute does.  Touch ids are chosen by the client and must
+      be unique among touches currently down.  A frame request ends each
+      set of simultaneous changes.
+    </description>
+    <request name="down">
+      <arg name="time" type="uint" summary="timestamp in milliseconds"/>
+      <arg name="id" type="int" summary="touch point id"/>
+      <arg name="x" type="uint"/>
+      <arg name="y" type="uint"/>
+      <arg name="x_extent" type="uint"/>
+      <arg name="y_extent" type="uint"/>
+    </request>
+    <request name="motion">
+      <arg name="time" type="uint"/>
+      <arg name="id" type="int"/>
+      <arg name="x" type="uint"/>
+      <arg name="y" type="uint"/>
+      <arg name="x_extent" type="uint"/>
+      <arg name="y_extent" type="uint"/>
+    </request>
+    <request name="up">
+      <arg name="time" type="uint"/>
+      <arg name="id" type="int"/>
+    </request>
+    <request name="cancel">
+      <description summary="the viewer lost the touch (e.g. a system gesture took it)"/>
+      <arg name="time" type="uint"/>
+      <arg name="id" type="int"/>
+    </request>
+    <request name="frame">
+      <description summary="end of a set of simultaneous touch changes"/>
+    </request>
+    <request name="destroy" type="destructor">
+      <description summary="destroy the device; touches still down are cancelled"/>
+    </request>
+  </interface>
+</protocol>

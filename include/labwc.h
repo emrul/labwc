@@ -397,6 +397,8 @@ void desktop_update_top_layer_visibility(void);
 void desktop_focus_topmost_view(void);
 
 void seat_init(void);
+/* portal_virtual_touch_v1: add a client-made wlr_touch as a touchscreen. */
+void seat_add_virtual_touch(struct seat *seat, struct wlr_input_device *dev);
 void seat_finish(void);
 void seat_reconfigure(void);
 void seat_force_focus_surface(struct seat *seat, struct wlr_surface *surface);
